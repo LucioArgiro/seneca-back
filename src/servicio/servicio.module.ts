@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm'; // Importante
 import { ServiciosService } from './servicio.service';
-import { ServicioController } from './servicio.controller';
+import { ServiciosController } from './servicio.controller';
 import { Servicio } from './entities/servicio.entity'; // Tu entidad
 
 @Module({
@@ -9,7 +9,7 @@ import { Servicio } from './entities/servicio.entity'; // Tu entidad
     // Registramos la entidad para que este módulo pueda hacer consultas a la tabla 'servicios'
     TypeOrmModule.forFeature([Servicio]) 
   ],
-  controllers: [ServicioController],
+  controllers: [ServiciosController],
   providers: [ServiciosService],
   exports: [ServiciosService], 
 })

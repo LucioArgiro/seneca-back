@@ -4,14 +4,25 @@ import { JwtService } from '@nestjs/jwt';
 import { UserRole } from '../usuario/entities/usuario.entity';
 import * as bcrypt from 'bcrypt';
 
+// 👇 NUEVOS IMPORTS NECESARIOS
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { Barbero } from '../barberos/entities/barbero.entity';
+import { Cliente } from '../clientes/entities/cliente.entity';
+
 @Injectable()
 export class AuthService {
   constructor(
     private usuarioService: UsuarioService,
     private jwtService: JwtService,
+    // 👇 INYECCIÓN DE REPOSITORIOS (Esto arregla el error "property does not exist")
+    @InjectRepository(Barbero)
+    private barberoRepo: Repository<Barbero>,
+    @InjectRepository(Cliente)
+    private clienteRepo: Repository<Cliente>,
   ) {}
 
-  // --- LOGIN (Ya lo tenías) ---
+  // --- LOGIN (Igual que antes) ---
   async login(email: string, pass: string) {
     const user = await this.usuarioService.findByEmailWithPassword(email);
 
@@ -35,18 +46,21 @@ export class AuthService {
   }
 
   async register(registerDto: any) {
-    const { email, password, fullname } = registerDto;
+    const { email, password, fullname, role } = registerDto;
     const existe = await this.usuarioService.findByEmailWithPassword(email);
     if (existe) {
       throw new BadRequestException('El email ya está registrado');
     }
     const salt = await bcrypt.genSalt();
     const hashPassword = await bcrypt.hash(password, salt);
-    return await this.usuarioService.create({
+    const usuario = await this.usuarioService.create({
       fullname,
       email,
       password: hashPassword,
-      role: UserRole.CLIENT
+      role: role || UserRole.CLIENT 
     });
+        const cliente = this.clienteRepo.create({ usuario: usuario });
+        await this.clienteRepo.save(cliente);
+    return usuario;
   }
 }

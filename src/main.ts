@@ -14,8 +14,9 @@ async function bootstrap() {
     }),
   );
   app.enableCors({
-  origin: 'https://senecafront.vercel.app',
+  origin: true,
   methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
+  credentials: true,
 });
   app.useStaticAssets(join(__dirname, '..', 'uploads'), {
     prefix: '/uploads/',

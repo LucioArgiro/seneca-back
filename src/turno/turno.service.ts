@@ -1,25 +1,36 @@
-import { BadRequestException, Injectable, NotFoundException, ConflictException, ForbiddenException } from '@nestjs/common';
-import { CreateTurnoDto } from './dto/create-turno.dto';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { Repository, MoreThan, LessThan, In } from 'typeorm';
 import { Turno, EstadoTurno } from './entities/turno.entity';
-import { Repository, LessThan, MoreThan } from 'typeorm';
-import { ServiciosService } from '../servicio/servicio.service';
-import { UsuarioService } from '../usuario/usuario.service';
+import { Cliente } from '../clientes/entities/cliente.entity';
+import { Barbero } from '../barberos/entities/barbero.entity';
+import { ServiciosService } from '../servicio/servicio.service'; // Ajusta la ruta si es necesario
+import { CreateTurnoDto } from './dto/create-turno.dto';
 
 @Injectable()
 export class TurnosService {
   constructor(
     @InjectRepository(Turno)
     private readonly turnoRepository: Repository<Turno>,
+    @InjectRepository(Cliente)
+    private readonly clienteRepository: Repository<Cliente>,
+    @InjectRepository(Barbero)
+    private readonly barberoRepository: Repository<Barbero>,
     private readonly serviciosService: ServiciosService,
-    private readonly usuariosService: UsuarioService,
   ) { }
-  async create(createTurnoDto: CreateTurnoDto) {
-    const { clienteId, barberoId, servicioId, fecha } = createTurnoDto;
-    const cliente = await this.usuariosService.findOne(clienteId);
-    if (!cliente) throw new NotFoundException(`El cliente con id ${clienteId} no existe`);
+
+  async create(createTurnoDto: CreateTurnoDto, usuarioIdCliente: string) {
+    const { barberoId, servicioId, fecha } = createTurnoDto;
+    const cliente = await this.clienteRepository.findOne({
+      where: { usuario: { id: usuarioIdCliente } }
+    });
+    if (!cliente) throw new NotFoundException('Debes completar tu perfil de Cliente antes de reservar.');
+    const barbero = await this.barberoRepository.findOne({
+      where: { usuario: { id: barberoId } }
+    });
+    if (!barbero) throw new NotFoundException(`El barbero seleccionado no existe o no tiene perfil configurado.`);
     const servicio = await this.serviciosService.findOne(servicioId);
-    if (!servicio) throw new NotFoundException(`El servicio con id ${servicioId} no existe`);
+    if (!servicio) throw new NotFoundException(`El servicio no existe`);
     const fechaInicio = new Date(fecha);
     const ahora = new Date();
     if (fechaInicio < ahora) {
@@ -28,22 +39,30 @@ export class TurnosService {
     const hora = fechaInicio.getHours();
     const esHorarioManana = hora >= 9 && hora < 14;
     const esHorarioTarde = hora >= 17 && hora < 22;
+
     if (!esHorarioManana && !esHorarioTarde) {
-      throw new BadRequestException('La barbería está cerrada en ese horario. Atendemos de 9-14hs y 17-22hs.');
+      throw new BadRequestException('La barbería está cerrada en ese horario.');
     }
-    const fechaFin = new Date(fechaInicio.getTime() + servicio.duracionMinutos * 60000);
-    const turnoSolapado = await this.turnoRepository.createQueryBuilder('turno')
-      .where('turno.barbero_id = :barberoId', { barberoId })
-      .andWhere('turno.fecha < :fechaFin', { fechaFin })
-      .andWhere('turno.fechaFin > :fechaInicio', { fechaInicio })
-      .getOne();
+    const duracionMs = servicio.duracionMinutos * 60 * 1000;
+    const fechaFin = new Date(fechaInicio.getTime() + duracionMs);
+    const turnoSolapado = await this.turnoRepository.findOne({
+      where: [
+        {
+          barbero: { id: barbero.id },
+          fecha: LessThan(fechaFin),
+          fechaFin: MoreThan(fechaInicio),
+          estado: In([EstadoTurno.PENDIENTE, EstadoTurno.CONFIRMADO])
+        }
+      ]
+    });
+
     if (turnoSolapado) {
       throw new ConflictException('El barbero ya tiene un turno ocupado en ese horario.');
     }
     const nuevoTurno = this.turnoRepository.create({
-      cliente: { id: clienteId },
-      barbero: { id: barberoId },
-      servicio: { id: servicioId },
+      cliente: cliente,
+      barbero: barbero,
+      servicio: servicio,
       fecha: fechaInicio,
       fechaFin: fechaFin,
       estado: EstadoTurno.PENDIENTE
@@ -51,67 +70,84 @@ export class TurnosService {
 
     return await this.turnoRepository.save(nuevoTurno);
   }
-
-  // Agrega findAll, findOne, etc. genéricos abajo...
-  async findAll(user: any) {
-
-    // Configuración base de la consulta (siempre traemos relaciones)
-    const options: any = {
-      relations: ['cliente', 'barbero', 'servicio'],
+  async findAllByClientUserId(usuarioId: string) {
+    const cliente = await this.clienteRepository.findOne({ where: { usuario: { id: usuarioId } } });
+    if (!cliente) return []; // Si no tiene perfil, no tiene turnos
+    return this.turnoRepository.find({
+      where: { cliente: { id: cliente.id } },
+      order: { fecha: 'DESC' }, // Los más nuevos primero
+      relations: ['barbero', 'barbero.usuario', 'servicio'] // Traemos datos para mostrar
+    });
+  }
+  async findAllByBarberUserId(usuarioId: string) {
+    const barbero = await this.barberoRepository.findOne({ where: { usuario: { id: usuarioId } } });
+    if (!barbero) return [];
+    return this.turnoRepository.find({
+      where: {
+        barbero: { id: barbero.id },
+        estado: EstadoTurno.PENDIENTE
+      },
       order: { fecha: 'ASC' },
-      where: {}, // Empezamos con filtro vacío
-    };
+      relations: ['cliente', 'cliente.usuario', 'servicio']
+    });
+  }
 
-    // LÓGICA DE PRIVACIDAD 🕵️‍♀️
-    if (user.role === 'CLIENT') {
-      // Si es cliente, SOLO ve sus turnos
-      options.where = {
-        cliente: { id: user.userId }
-      };
-    }
-    // Si es BARBERO o ADMIN, el 'where' se queda vacío y ve todo.
+  async findHistoryByBarberUserId(usuarioId: string) {
+    const barbero = await this.barberoRepository.findOne({ where: { usuario: { id: usuarioId } } });
+    if (!barbero) return [];
 
-    return await this.turnoRepository.find(options);
+    return this.turnoRepository.find({
+      where: [
+        { barbero: { id: barbero.id }, estado: EstadoTurno.COMPLETADO },
+        { barbero: { id: barbero.id }, estado: EstadoTurno.CANCELADO }
+      ],
+      order: { fecha: 'DESC' },
+      relations: ['cliente', 'cliente.usuario', 'servicio']
+    });
   }
 
   async updateStatus(id: string, nuevoEstado: EstadoTurno) {
-    const turno = await this.turnoRepository.findOneBy({ id });
-
-    if (!turno) {
-      throw new NotFoundException(`El turno con id ${id} no existe`);
-    }
+    const turno = await this.turnoRepository.findOne({ where: { id } });
+    if (!turno) throw new NotFoundException(`El turno no existe`);
 
     turno.estado = nuevoEstado;
     return await this.turnoRepository.save(turno);
   }
 
-  async cancelarTurno(id: string, user: any) {
-    const turno = await this.turnoRepository.findOne({ 
+  async cancelarTurno(id: string, usuario: any) {
+    const turno = await this.turnoRepository.findOne({
       where: { id },
-      relations: ['cliente'] 
+      relations: ['cliente', 'cliente.usuario', 'barbero', 'barbero.usuario']
     });
 
     if (!turno) throw new NotFoundException('Turno no encontrado');
+    const userIdSolicitante = usuario.id || usuario.sub;
+    let tienePermiso = false;
 
-    // 🕵️‍♀️ AQUÍ ESTÁ EL MICRÓFONO: MIRA LA CONSOLA DEL BACKEND
-    console.log("--- DEBUG CANCELACIÓN ---");
-    console.log("ID del Turno:", turno.id);
-    console.log("Dueño del Turno (DB):", turno.cliente?.id);
-    console.log("Usuario que intenta cancelar (Token):", user);
-    console.log("¿Coinciden?", turno.cliente?.id === user.sub);
-    console.log("-------------------------");
-
-    // Lógica de validación
-    // A veces el token trae 'id' en vez de 'sub', o 'userId'. Vamos a asegurar eso.
-   const userIdDelToken = user.sub || user.id || user.userId; 
-
-    // Debug opcional: Ahora verás que sí lo encuentra
-    console.log("ID recuperado del token:", userIdDelToken);
-
-    if (user.role === 'CLIENT' && turno.cliente.id !== userIdDelToken) {
-       throw new ForbiddenException('No tienes permiso para cancelar este turno.');
+    if (usuario.role === 'ADMIN') {
+      tienePermiso = true;
     }
+    else if (usuario.role === 'BARBER') {
+      if (turno.barbero.usuario.id === userIdSolicitante) tienePermiso = true;
+    }
+    else {
+
+      if (turno.cliente.usuario.id === userIdSolicitante) tienePermiso = true;
+    }
+
+    if (!tienePermiso) {
+      throw new ForbiddenException('No tienes permiso para cancelar este turno.');
+    }
+
     turno.estado = EstadoTurno.CANCELADO;
     return await this.turnoRepository.save(turno);
   }
+
+  async findAll() {
+    return this.turnoRepository.find({
+      relations: ['cliente', 'cliente.usuario', 'barbero', 'barbero.usuario', 'servicio'],
+      order: { fecha: 'ASC' },
+    });
+  }
+
 }

@@ -1,38 +1,38 @@
-import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn, Unique, CreateDateColumn } from 'typeorm';
-import { Usuario } from '../../usuario/entities/usuario.entity';
-import { Servicio } from '../../servicio/entities/servicio.entity';
+import {Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn, CreateDateColumn, Unique} from 'typeorm';
+
+// 👇 Asegúrate de que estas rutas sean correctas según tu estructura de carpetas
+import { Cliente } from '../../clientes/entities/cliente.entity';
+import { Barbero } from '../../barberos/entities/barbero.entity';
+import { Servicio } from '../../servicio/entities/servicio.entity'; // A veces la carpeta es 'servicios' (plural)
 
 export enum EstadoTurno {
   PENDIENTE = 'PENDIENTE',
-  CONFIRMADO = 'CONFIRMADO',
+  CONFIRMADO = 'CONFIRMADO', // Opcional, si usas confirmación por email
   COMPLETADO = 'COMPLETADO',
   CANCELADO = 'CANCELADO',
 }
 
 @Entity('turnos')
-// Mantenemos el unique para evitar duplicados exactos, aunque nuestra validación por código será más potente.
-@Unique(['barbero', 'fecha']) 
+@Unique(['barbero', 'fecha']) // Evita duplicados exactos en DB
 export class Turno {
   @PrimaryGeneratedColumn('uuid')
   id: string;
-
-  @ManyToOne(() => Usuario, { eager: true }) 
+  @ManyToOne(() => Cliente, { eager: true }) 
   @JoinColumn({ name: 'cliente_id' })
-  cliente: Usuario;
+  cliente: Cliente;
 
-  @ManyToOne(() => Usuario, { eager: true })
+  @ManyToOne(() => Barbero, { eager: true })
   @JoinColumn({ name: 'barbero_id' })
-  barbero: Usuario;
+  barbero: Barbero;
 
   @ManyToOne(() => Servicio, { eager: true })
   @JoinColumn({ name: 'servicio_id' })
   servicio: Servicio;
 
-  // INICIO DEL TURNO
-  @Column('datetime')
+  @Column({ type: 'timestamp' }) // 'timestamp' es más estándar en TypeORM que 'datetime', pero ambos funcionan
   fecha: Date;
 
-  @Column('datetime')
+  @Column({ type: 'timestamp' })
   fechaFin: Date;
 
   @Column({

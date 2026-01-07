@@ -6,6 +6,11 @@ import { UsuariosModule } from './usuario/usuario.module';
 import { ServiciosModule } from './servicio/servicio.module';
 import { TurnosModule } from './turno/turno.module';
 import { AuthModule } from './auth/auth.module';
+import { ResenasModule } from './resenas/resenas.module';
+import { BarberosModule } from './barberos/barberos.module';
+import { MensajesModule } from './mensajes/mensajes.module';
+import { PagosModule } from './pagos/pagos.module';
+import { ClientesModule } from './clientes/clientes.module';
 
 @Module({
   imports: [
@@ -28,6 +33,11 @@ import { AuthModule } from './auth/auth.module';
     ServiciosModule,
     TurnosModule,
     AuthModule,
+    ResenasModule,
+    BarberosModule,
+    MensajesModule,
+    PagosModule,
+    ClientesModule,
   ],
 })
 export class AppModule { }
