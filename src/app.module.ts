@@ -11,6 +11,8 @@ import { BarberosModule } from './barberos/barberos.module';
 import { MensajesModule } from './mensajes/mensajes.module';
 import { PagosModule } from './pagos/pagos.module';
 import { ClientesModule } from './clientes/clientes.module';
+import { FilesModule } from './files/files.module';
+import { AgendaModule } from './agenda/agenda.module';
 
 @Module({
   imports: [
@@ -22,6 +24,7 @@ import { ClientesModule } from './clientes/clientes.module';
       username: process.env.DB_USERNAME,
       password: process.env.DB_PASSWORD,
       database: process.env.DB_NAME,
+      timezone: 'Z',
       autoLoadEntities: true,
       synchronize: true, 
       ssl: {
@@ -38,6 +41,8 @@ import { ClientesModule } from './clientes/clientes.module';
     MensajesModule,
     PagosModule,
     ClientesModule,
+    FilesModule,
+    AgendaModule,
   ],
 })
 export class AppModule { }

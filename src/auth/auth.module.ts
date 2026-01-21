@@ -13,7 +13,6 @@ import { Cliente } from '../clientes/entities/cliente.entity';
 
 @Module({
   imports: [
-    // 👇 AGREGAR ESTA LÍNEA (Registra los repositorios para que AuthService los pueda usar)
     TypeOrmModule.forFeature([Barbero, Cliente]), 
     
     UsuariosModule,

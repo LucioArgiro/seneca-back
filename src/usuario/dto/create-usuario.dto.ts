@@ -4,7 +4,11 @@ import { UserRole } from '../entities/usuario.entity'; // Asegúrate de importar
 export class CreateUsuarioDto {
   @IsString()
   @MinLength(3, { message: 'El nombre debe tener al menos 3 letras' })
-  fullname: string;
+  nombre: string;
+
+  @IsString()
+  @MinLength(3, { message: 'El nombre debe tener al menos 3 letras' })
+  apellido: string;
 
   @IsEmail({}, { message: 'El formato del email es incorrecto' })
   email: string;

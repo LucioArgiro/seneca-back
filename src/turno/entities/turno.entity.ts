@@ -1,19 +1,17 @@
 import {Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn, CreateDateColumn, Unique} from 'typeorm';
-
-// 👇 Asegúrate de que estas rutas sean correctas según tu estructura de carpetas
 import { Cliente } from '../../clientes/entities/cliente.entity';
 import { Barbero } from '../../barberos/entities/barbero.entity';
-import { Servicio } from '../../servicio/entities/servicio.entity'; // A veces la carpeta es 'servicios' (plural)
+import { Servicio } from '../../servicio/entities/servicio.entity'; 
 
 export enum EstadoTurno {
   PENDIENTE = 'PENDIENTE',
-  CONFIRMADO = 'CONFIRMADO', // Opcional, si usas confirmación por email
+  CONFIRMADO = 'CONFIRMADO', 
   COMPLETADO = 'COMPLETADO',
   CANCELADO = 'CANCELADO',
 }
 
 @Entity('turnos')
-@Unique(['barbero', 'fecha']) // Evita duplicados exactos en DB
+@Unique(['barbero', 'fecha']) 
 export class Turno {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -29,7 +27,7 @@ export class Turno {
   @JoinColumn({ name: 'servicio_id' })
   servicio: Servicio;
 
-  @Column({ type: 'timestamp' }) // 'timestamp' es más estándar en TypeORM que 'datetime', pero ambos funcionan
+  @Column({ type: 'timestamp' })
   fecha: Date;
 
   @Column({ type: 'timestamp' })

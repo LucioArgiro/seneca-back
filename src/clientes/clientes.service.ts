@@ -27,7 +27,8 @@ export class ClientesService {
     return {
       ...datosCliente,
       usuarioId: usuario.id,
-      fullname: usuario.fullname,
+      nombre: usuario.nombre,
+      apellido: usuario.apellido,
       email: usuario.email,
     };
   }

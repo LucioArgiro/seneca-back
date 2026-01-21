@@ -12,7 +12,10 @@ export class Usuario {
     id: string;
 
     @Column({ type: 'varchar', length: 100 })
-    fullname: string;
+    nombre: string;
+
+    @Column({ type: 'varchar', length: 100 })
+    apellido: string;
 
     @Column({ type: 'varchar', length: 255, unique: true })
     email: string;
@@ -32,5 +35,4 @@ export class Usuario {
     @UpdateDateColumn()
     updatedAt: Date;
 
-    // NOTA: Ya no ponemos relaciones de reseñas aquí.
 }

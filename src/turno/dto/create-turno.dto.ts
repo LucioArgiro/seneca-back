@@ -4,11 +4,7 @@ export class CreateTurnoDto {
   @IsISO8601() 
   @IsNotEmpty()
   fecha: string;
-
-  @IsUUID()
-  @IsNotEmpty()
-  clienteId: string;
-
+  
   @IsUUID()
   @IsNotEmpty()
   barberoId: string;

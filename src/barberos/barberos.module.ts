@@ -6,8 +6,10 @@ import { Barbero } from './entities/barbero.entity';
 import { UsuariosModule } from '../usuario/usuario.module';
 import { Usuario } from 'src/usuario/entities/usuario.entity';
 
+import { HorarioBarbero } from './entities/horario-barbero.entity';
+
 @Module({
-  imports: [TypeOrmModule.forFeature([Barbero, Usuario]), UsuariosModule],
+  imports: [TypeOrmModule.forFeature([Barbero, Usuario, HorarioBarbero]), UsuariosModule],
   controllers: [BarberosController],
   providers: [BarberosService],
   exports: [TypeOrmModule], // 👈 ¡CLAVE! Exportamos esto para que Auth pueda guardar barberos
