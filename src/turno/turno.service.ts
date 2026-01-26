@@ -1,12 +1,12 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, MoreThan, LessThan, In, Between, Not } from 'typeorm';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { Turno, EstadoTurno } from './entities/turno.entity';
 import { Cliente } from '../clientes/entities/cliente.entity';
 import { Barbero } from '../barberos/entities/barbero.entity';
 import { ServiciosService } from '../servicio/servicio.service';
 import { CreateTurnoDto } from './dto/create-turno.dto';
-// 👇 Importamos la entidad de bloqueo
 import { BloqueoAgenda } from '../agenda/entities/bloqueo-agenda.entity';
 
 import dayjs from 'dayjs';
@@ -18,17 +18,24 @@ dayjs.extend(timezone);
 
 @Injectable()
 export class TurnosService {
+  private readonly logger = new Logger(TurnosService.name);
+
   constructor(
     @InjectRepository(Turno)
     private readonly turnoRepository: Repository<Turno>,
+
     @InjectRepository(Cliente)
     private readonly clienteRepository: Repository<Cliente>,
+
     @InjectRepository(Barbero)
     private readonly barberoRepository: Repository<Barbero>,
+
     @InjectRepository(BloqueoAgenda)
-    private readonly bloqueoRepo: Repository<BloqueoAgenda>, // 👈 Inyectado correctamente
+    private readonly bloqueoRepo: Repository<BloqueoAgenda>,
+
     private readonly serviciosService: ServiciosService,
   ) { }
+
 
   async create(createTurnoDto: CreateTurnoDto, usuarioIdCliente: string) {
     const { barberoId, servicioId, fecha } = createTurnoDto;
@@ -42,7 +49,7 @@ export class TurnosService {
     const barbero = await this.barberoRepository.findOne({
       where: { id: createTurnoDto.barberoId }
     });
-    if (!barbero) throw new NotFoundException(`El barbero seleccionado no existe o no tiene perfil configurado.`);
+    if (!barbero) throw new NotFoundException(`El barbero seleccionado no existe.`);
 
     const servicio = await this.serviciosService.findOne(servicioId);
     if (!servicio) throw new NotFoundException(`El servicio no existe`);
@@ -55,46 +62,28 @@ export class TurnosService {
       throw new BadRequestException('No puedes agendar turnos en el pasado.');
     }
 
-    // 3. Validación de Horario Comercial
+    // 3. Validación de Horario (Simplificada)
+    // OJO: Idealmente esto debería venir de 'barbero.horarios' en el futuro
     const hora = fechaInicio.getHours();
     const esHorarioManana = hora >= 9 && hora < 14;
     const esHorarioTarde = hora >= 17 && hora < 22;
+
     if (!esHorarioManana && !esHorarioTarde) {
       throw new BadRequestException('La barbería está cerrada en ese horario.');
     }
-
     const duracionMs = servicio.duracionMinutos * 60 * 1000;
     const fechaFin = new Date(fechaInicio.getTime() + duracionMs);
-
-    // =================================================================================
-    // 👇 4. VALIDACIÓN DE BLOQUEOS (NUEVO)
-    // Buscamos si hay un bloqueo que choque con el rango del turno (fechaInicio a fechaFin)
-    // =================================================================================
     const bloqueo = await this.bloqueoRepo.findOne({
       where: [
-        // CASO A: Bloqueo General (Feriados, etc) que se solape
-        {
-          esGeneral: true,
-          fechaInicio: LessThan(fechaFin), // Empieza antes de que termine el turno
-          fechaFin: MoreThan(fechaInicio)  // Termina después de que empiece el turno
-        },
-        // CASO B: Bloqueo específico de este barbero (Vacaciones, médico, etc)
-        {
-          barbero: { id: barbero.id },
-          fechaInicio: LessThan(fechaFin),
-          fechaFin: MoreThan(fechaInicio)
-        }
+        { esGeneral: true, fechaInicio: LessThan(fechaFin), fechaFin: MoreThan(fechaInicio) },
+        { barbero: { id: barbero.id }, fechaInicio: LessThan(fechaFin), fechaFin: MoreThan(fechaInicio) }
       ]
     });
 
     if (bloqueo) {
-      // Si encontramos un bloqueo, impedimos la reserva
-      throw new ConflictException(`No disponible: ${bloqueo.motivo || 'Agenda cerrada por feriado/descanso'}`);
+      throw new ConflictException(`No disponible: ${bloqueo.motivo || 'Agenda cerrada'}`);
     }
-    // =================================================================================
 
-
-    // 5. Validación de Turnos Solapados (Otros clientes)
     const turnoSolapado = await this.turnoRepository.findOne({
       where: [
         {
@@ -110,6 +99,9 @@ export class TurnosService {
       throw new ConflictException('El barbero ya tiene un turno ocupado en ese horario.');
     }
 
+    const valorSenia = Number(barbero.precioSenia);
+    const estadoInicial = (valorSenia === 0) ? EstadoTurno.CONFIRMADO : EstadoTurno.PENDIENTE;
+
     // 6. Creación
     const nuevoTurno = this.turnoRepository.create({
       cliente: cliente,
@@ -117,20 +109,20 @@ export class TurnosService {
       servicio: servicio,
       fecha: fechaInicio,
       fechaFin: fechaFin,
-      estado: EstadoTurno.PENDIENTE
+      estado: estadoInicial
     });
 
     return await this.turnoRepository.save(nuevoTurno);
   }
 
-  // ... (Resto de métodos de búsqueda se mantienen igual)
+
   async findAllByClientUserId(usuarioId: string) {
     const cliente = await this.clienteRepository.findOne({ where: { usuario: { id: usuarioId } } });
     if (!cliente) return [];
     return this.turnoRepository.find({
       where: { cliente: { id: cliente.id } },
       order: { fecha: 'DESC' },
-      relations: ['barbero', 'barbero.usuario', 'servicio']
+      relations: ['barbero', 'barbero.usuario', 'servicio', 'pago']
     });
   }
 
@@ -170,7 +162,7 @@ export class TurnosService {
   async cancelarTurno(id: string, usuario: any) {
     const turno = await this.turnoRepository.findOne({
       where: { id },
-      relations: ['cliente', 'cliente.usuario', 'barbero', 'barbero.usuario']
+      relations: ['cliente', 'cliente.usuario', 'barbero', 'barbero.usuario', 'pago']
     });
 
     if (!turno) throw new NotFoundException('Turno no encontrado');
@@ -187,6 +179,11 @@ export class TurnosService {
     }
     if (!tienePermiso) {
       throw new ForbiddenException('No tienes permiso para cancelar este turno.');
+
+    }
+
+    if (usuario.role === 'CLIENT' && turno.pago && turno.pago.estado === 'approved') {
+      throw new BadRequestException('Esta reserva ya fue abonada. No puedes cancelarla, pero puedes reprogramarla para otra fecha.');
     }
 
     turno.estado = EstadoTurno.CANCELADO;
@@ -240,9 +237,9 @@ export class TurnosService {
     }
     const ahora = new Date();
     const tiempoRestante = turno.fecha.getTime() - ahora.getTime();
-    const dosHorasEnMs = 2 * 60 * 60 * 1000;
+    const dosHorasEnMs = 12 * 60 * 60 * 1000;
     if (usuario.role === 'CLIENT' && tiempoRestante < dosHorasEnMs) {
-      throw new BadRequestException('Solo se puede reprogramar con 2 horas de anticipación. Por favor contáctanos.');
+      throw new BadRequestException('Solo se puede reprogramar con 12 horas de anticipación. Por favor contáctanos.');
     }
     const fechaInicio = new Date(nuevaFechaISO);
     const hora = fechaInicio.getHours();
@@ -253,10 +250,6 @@ export class TurnosService {
     }
     const duracionMs = turno.servicio.duracionMinutos * 60 * 1000;
     const fechaFin = new Date(fechaInicio.getTime() + duracionMs);
-
-    // =================================================================================
-    // 👇 VALIDACIÓN DE BLOQUEOS TAMBIÉN AL REPROGRAMAR
-    // =================================================================================
     const bloqueo = await this.bloqueoRepo.findOne({
       where: [
         {
@@ -301,11 +294,38 @@ export class TurnosService {
 
     return this.turnoRepository.find({
       where: {
-        fecha: Between(inicioDia, finDia), // Turnos que ocurren en este día
-        estado: Not(EstadoTurno.CANCELADO) // Opcional: No traer cancelados a la grilla
+        fecha: Between(inicioDia, finDia),
+        estado: Not(EstadoTurno.CANCELADO)
       },
       relations: ['cliente', 'cliente.usuario', 'barbero', 'barbero.usuario', 'servicio'],
       order: { fecha: 'ASC' }
     });
   }
+
+  async findOne(id: string): Promise<Turno> {
+    const turno = await this.turnoRepository.findOne({
+      where: { id },
+      relations: ['cliente', 'cliente.usuario', 'barbero', 'servicio']
+    });
+    if (!turno) throw new NotFoundException('Turno no encontrado');
+    return turno;
+  }
+
+  @Cron(CronExpression.EVERY_10_MINUTES)
+  async limpiarTurnosVencidos() {
+    this.logger.debug('🧹 Iniciando limpieza de turnos fantasma...');
+    const tiempoLimite = new Date();
+    tiempoLimite.setMinutes(tiempoLimite.getMinutes() - 15);
+    const resultado = await this.turnoRepository.delete({
+      estado: EstadoTurno.PENDIENTE,
+      creadoEn: LessThan(tiempoLimite),
+    });
+
+    if (resultado.affected && resultado.affected > 0) {
+      this.logger.log(`🗑️ Se eliminaron ${resultado.affected} turnos pendientes expirados.`);
+    } else {
+      this.logger.debug('✅ No se encontraron turnos vencidos.');
+    }
+  }
+
 }

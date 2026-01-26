@@ -1,9 +1,8 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { TurnosService } from './turno.service';
-import { TurnosController } from './controllers/turno.controller'; 
+import { TurnosController } from './controllers/turno.controller';
 import { DisponibilidadController } from './controllers/disponibilidad.controller';
-
 import { Turno } from './entities/turno.entity';
 import { BloqueoAgenda } from '../agenda/entities/bloqueo-agenda.entity';
 import { Barbero } from '../barberos/entities/barbero.entity';
@@ -12,10 +11,12 @@ import { ServiciosModule } from '../servicio/servicio.module';
 import { UsuariosModule } from '../usuario/usuario.module';
 import { ClientesModule } from '../clientes/clientes.module';
 import { BarberosModule } from '../barberos/barberos.module';
+import { PagosModule } from 'src/pagos/pagos.module';
+
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Turno, BloqueoAgenda, Barbero, Cliente]), ServiciosModule, UsuariosModule, ClientesModule,  BarberosModule,],
+    TypeOrmModule.forFeature([Turno, BloqueoAgenda, Barbero, Cliente]), ServiciosModule, UsuariosModule, ClientesModule, BarberosModule, PagosModule],
   controllers: [TurnosController, DisponibilidadController],
   providers: [TurnosService],
 })

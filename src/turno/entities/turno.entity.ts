@@ -1,21 +1,22 @@
-import {Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn, CreateDateColumn, Unique} from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn, CreateDateColumn, Unique, OneToOne } from 'typeorm';
 import { Cliente } from '../../clientes/entities/cliente.entity';
 import { Barbero } from '../../barberos/entities/barbero.entity';
-import { Servicio } from '../../servicio/entities/servicio.entity'; 
+import { Servicio } from '../../servicio/entities/servicio.entity';
+import { Pago } from '../../pagos/entities/pago.entity';
 
 export enum EstadoTurno {
   PENDIENTE = 'PENDIENTE',
-  CONFIRMADO = 'CONFIRMADO', 
+  CONFIRMADO = 'CONFIRMADO',
   COMPLETADO = 'COMPLETADO',
   CANCELADO = 'CANCELADO',
 }
 
 @Entity('turnos')
-@Unique(['barbero', 'fecha']) 
+@Unique(['barbero', 'fecha'])
 export class Turno {
   @PrimaryGeneratedColumn('uuid')
   id: string;
-  @ManyToOne(() => Cliente, { eager: true }) 
+  @ManyToOne(() => Cliente, { eager: true })
   @JoinColumn({ name: 'cliente_id' })
   cliente: Cliente;
 
@@ -45,4 +46,7 @@ export class Turno {
 
   @CreateDateColumn({ name: 'creado_en' })
   creadoEn: Date;
+
+  @OneToOne(() => Pago, (pago) => pago.turno, { cascade: true })
+  pago: Pago;
 }

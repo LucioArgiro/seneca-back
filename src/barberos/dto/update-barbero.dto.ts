@@ -13,13 +13,10 @@ export class UpdateBarberoDto extends PartialType(CreateBarberoDto) {
   @IsOptional() @IsString() dni?: string;
   @IsOptional() @IsNumber() edad?: number;
   @IsOptional() @IsString() sexo?: string;
-  @IsOptional() @IsString() fullname?: string;
+  @IsOptional() @IsString() nombre?: string;
+  @IsOptional() @IsString() apellido?: string;
   @IsOptional() @IsEmail() email?: string;
-  @IsOptional()
+  @IsOptional() @IsNumber() precioSenia?: number;
 
-  @IsOptional()
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => CreateHorarioDto)
-  horarios?: CreateHorarioDto[];
+  @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => CreateHorarioDto) horarios?: CreateHorarioDto[];
 }

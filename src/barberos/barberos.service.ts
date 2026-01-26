@@ -75,9 +75,10 @@ export class BarberosService {
         relations: ['usuario', 'horarios']
       });
       if (!barbero) throw new NotFoundException('Barbero no encontrado');
-      const { fullname, email, horarios, ...datosPropios } = updateDto;
-      if (fullname || email) {
-        if (fullname) barbero.usuario.nombre = fullname;
+      const { nombre, apellido, email, horarios, ...datosPropios } = updateDto;
+      if (nombre || apellido || email) {
+        if (nombre) barbero.usuario.nombre = nombre;
+        if (apellido) barbero.usuario.apellido = apellido;
 
         if (email && email !== barbero.usuario.email) {
           const emailExists = await manager.findOne(Usuario, { where: { email } });

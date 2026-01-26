@@ -21,6 +21,9 @@ export class Barbero {
     @Column({ nullable: true })
     edad: number;
 
+    @Column({ type: 'int', default: 2000 })
+    precioSenia: number;
+
     @Column({ nullable: true })
     sexo: string;
 

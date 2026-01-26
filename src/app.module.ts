@@ -43,6 +43,7 @@ import { AgendaModule } from './agenda/agenda.module';
     ClientesModule,
     FilesModule,
     AgendaModule,
+    PagosModule
   ],
 })
 export class AppModule { }
