@@ -10,7 +10,7 @@ export class AgendaController {
   constructor(private readonly agendaService: AgendaService) { }
   @Post('bloqueos')
   @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles('ADMIN')
+  @Roles('ADMIN', 'BARBER')
   create(@Body() createBloqueoDto: CreateBloqueoDto) {
     return this.agendaService.crearBloqueo(createBloqueoDto);
   }
@@ -25,7 +25,7 @@ export class AgendaController {
 
   @Delete('bloqueos/:id')
   @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles('ADMIN')
+  @Roles('ADMIN', 'BARBER')
   remove(@Param('id', ParseUUIDPipe) id: string) {
     return this.agendaService.remove(id);
   }

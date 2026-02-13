@@ -17,6 +17,7 @@ export class UpdateBarberoDto extends PartialType(CreateBarberoDto) {
   @IsOptional() @IsString() apellido?: string;
   @IsOptional() @IsEmail() email?: string;
   @IsOptional() @IsNumber() precioSenia?: number;
-
+  @IsOptional() @IsString() aliasMp?: string;
+  @IsOptional() @IsString() imagenQrUrl?: string;
   @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => CreateHorarioDto) horarios?: CreateHorarioDto[];
 }

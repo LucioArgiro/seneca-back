@@ -107,12 +107,13 @@ export class BarberosService {
   }
 
   async createBarber(createDto: CreateBarberoDto) {
-    const { nombre, apellido, email, password, ...datosPerfil } = createDto;
+    const { nombre, apellido, telefono, email, password, ...datosPerfil } = createDto;
     const salt = await bcrypt.genSalt();
     const hashPassword = await bcrypt.hash(password, salt);
     const usuario = await this.usuarioService.create({
       nombre,
       apellido,
+      telefono,
       email,
       password: hashPassword,
       role: UserRole.BARBER

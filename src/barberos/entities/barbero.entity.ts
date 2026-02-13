@@ -24,6 +24,12 @@ export class Barbero {
     @Column({ type: 'int', default: 2000 })
     precioSenia: number;
 
+    @Column('text', { nullable: true })
+    aliasMp: string; 
+
+    @Column('text', { nullable: true })
+    imagenQrUrl: string;
+
     @Column({ nullable: true })
     sexo: string;
 

@@ -24,9 +24,10 @@ export class CreateUsuarioDto {
   password: string;
 
   @IsString()
-  @IsOptional()
-  phone?: string;
+  @MinLength(10, { message: 'El teléfono debe tener al menos 10 dígitos' })
+  telefono: string;
 
+  
   @IsString()
   @IsOptional()
   pais?: string;

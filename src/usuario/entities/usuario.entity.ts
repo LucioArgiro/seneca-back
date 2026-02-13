@@ -23,6 +23,13 @@ export class Usuario {
     @Column({ type: 'text', select: false })
     password: string;
 
+    @Column({ type: 'varchar', length: 10, nullable: true })
+    recoveryCode: string | null;  // 👈 Agrega esto
+
+    @Column({ type: 'timestamp', nullable: true })
+    recoveryExpires: Date | null; // 👈 Agrega esto
+
+
     @Column({ type: 'enum', enum: UserRole, default: UserRole.CLIENT })
     role: UserRole;
 

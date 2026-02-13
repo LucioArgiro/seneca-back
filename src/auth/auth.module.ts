@@ -6,24 +6,28 @@ import { PassportModule } from '@nestjs/passport';
 import { JwtModule } from '@nestjs/jwt';
 import { JwtStrategy } from './jwt.strategy';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { ConfigModule, ConfigService } from '@nestjs/config'; // 👈 Importamos ConfigService
 
-// 👇 IMPORTS DE ENTIDADES
+import { Usuario } from '../usuario/entities/usuario.entity';
 import { Barbero } from '../barberos/entities/barbero.entity';
 import { Cliente } from '../clientes/entities/cliente.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Barbero, Cliente]), 
-    
+    TypeOrmModule.forFeature([Usuario, Barbero, Cliente]),
     UsuariosModule,
     PassportModule,
-    JwtModule.register({
-      secret: 'MI_PALABRA_SECRETA_SUPER_SEGURA', 
-      signOptions: { expiresIn: '60m' },
+    JwtModule.registerAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => ({
+        secret: configService.get<string>('JWT_SECRET'),
+        signOptions: { expiresIn: '1d' },
+      }),
     }),
   ],
   controllers: [AuthController],
   providers: [AuthService, JwtStrategy],
   exports: [AuthService],
 })
-export class AuthModule {}
+export class AuthModule { }

@@ -16,9 +16,19 @@ export class TurnosController {
     private readonly pagosService: PagosService
   ) { }
 
+  // 👇 AQUÍ ESTÁ EL CAMBIO IMPORTANTE
   @Get()
-  @Roles('ADMIN')
-  findAll(@Query('fecha') fecha?: string) {
+  @Roles('ADMIN', 'BARBER') 
+  findAll(
+    @Query('fecha') fecha?: string,
+    @Query('desde') desde?: string,
+    @Query('hasta') hasta?: string,
+    @Query('barberoId') barberoId?: string
+  ) {
+    // Caso 1: Rango de fechas (Para la Agenda Global)
+    if (desde && hasta) {
+      return this.turnoService.findAllByDateRange(new Date(desde), new Date(hasta), barberoId);
+    }
     if (fecha) {
       return this.turnoService.findByDate(fecha);
     }
@@ -28,7 +38,8 @@ export class TurnosController {
   @Post()
   @Roles('CLIENT')
   create(@Body() createTurnoDto: CreateTurnoDto, @Request() req) {
-    return this.turnoService.create(createTurnoDto, req.user.id);
+    const userId = req.user ? req.user.id : null;
+    return this.turnoService.create(createTurnoDto, userId);
   }
 
   @Get('mis-turnos')
@@ -46,8 +57,12 @@ export class TurnosController {
   }
 
   @Get('historial-clientes')
-  @Roles('BARBER')
+  @Roles('BARBER', 'ADMIN')
   getHistory(@Request() req) {
+
+    if (req.user.role === 'ADMIN') {
+      return this.turnoService.findAllHistory();
+    }
     return this.turnoService.findHistoryByBarberUserId(req.user.id);
   }
 
@@ -77,10 +92,18 @@ export class TurnosController {
   }
 
   @Post(':id/preferencia')
-  @Roles('CLIENT') 
+  @Roles('CLIENT')
   async crearPreferenciaPago(@Param('id', ParseUUIDPipe) id: string, @Body('tipoPago') tipoPago: 'SENIA' | 'TOTAL') {
     const turno = await this.turnoService.findOne(id);
     const preferencia = await this.pagosService.crearPreferencia(turno, tipoPago);
     return preferencia;
+  }
+
+  @Patch(':id/completar')
+  async completarTurno(
+    @Param('id') id: string,
+    @Body('metodoPago') metodoPago: string
+  ) {
+    return this.turnoService.completar(id, metodoPago);
   }
 }

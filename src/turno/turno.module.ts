@@ -12,11 +12,12 @@ import { UsuariosModule } from '../usuario/usuario.module';
 import { ClientesModule } from '../clientes/clientes.module';
 import { BarberosModule } from '../barberos/barberos.module';
 import { PagosModule } from 'src/pagos/pagos.module';
+import { CajaModule } from 'src/caja/caja.module';
 
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Turno, BloqueoAgenda, Barbero, Cliente]), ServiciosModule, UsuariosModule, ClientesModule, BarberosModule, PagosModule],
+    TypeOrmModule.forFeature([Turno, BloqueoAgenda, Barbero, Cliente]), ServiciosModule, UsuariosModule, ClientesModule, BarberosModule, PagosModule, CajaModule],
   controllers: [TurnosController, DisponibilidadController],
   providers: [TurnosService],
 })

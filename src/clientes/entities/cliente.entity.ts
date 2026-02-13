@@ -11,10 +11,15 @@ export class Cliente {
     @JoinColumn()
     usuario: Usuario;
 
-    @Column({ nullable: true })
+    @Column({ nullable: true }) 
     telefono: string;
 
-    // Aquí viven las reseñas que ESCRIBE el cliente
+    @Column({ nullable: true })
+    pais: string;
+
+    @Column({ nullable: true })
+    provincia: string;
+
     @OneToMany(() => Resena, (resena) => resena.cliente)
     resenasRealizadas: Resena[];
 }
