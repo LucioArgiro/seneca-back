@@ -12,7 +12,6 @@ export enum EstadoTurno {
 }
 
 @Entity('turnos')
-@Unique(['barbero', 'fecha'])
 export class Turno {
   @PrimaryGeneratedColumn('uuid')
   id: string;

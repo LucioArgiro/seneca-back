@@ -35,8 +35,6 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException('Usuario no encontrado o inactivo');
     }
 
-    // 5. Retornamos el objeto limpio (ESTO ES LO QUE LLEGA A REQ.USER)
-    // Al venir de la BD, user.nombre y user.apellido SI existen.
     return {
       id: user.id,
       email: user.email,

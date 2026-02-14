@@ -3,7 +3,6 @@ import { type Response } from 'express';
 import { AuthService } from './auth.service';
 import { CreateUsuarioDto } from '../usuario/dto/create-usuario.dto';
 import { JwtAuthGuard } from './jwt-auth.guard';
-// 👇 1. Importamos Throttle y el Filtro
 import { Throttle } from '@nestjs/throttler';
 import { ThrottlerExceptionFilter } from '../common/filters/throttler-exception.filter'; // Ajusta la ruta
 
@@ -22,9 +21,8 @@ export class AuthController {
 
     res.cookie('token', access_token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict', 
-      maxAge: 24 * 60 * 60 * 1000,
+      secure: true,
+      sameSite: 'none', 
     });
 
     return { user };

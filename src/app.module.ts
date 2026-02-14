@@ -19,6 +19,7 @@ import { FilesModule } from './files/files.module';
 import { AgendaModule } from './agenda/agenda.module';
 import { CajaModule } from './caja/caja.module';
 import { NegocioModule } from './negocio/negocio.module';
+import { DashboardModule } from './dashboard/dashboard.module';
 
 @Module({
   imports: [
@@ -61,7 +62,8 @@ import { NegocioModule } from './negocio/negocio.module';
     FilesModule,
     AgendaModule,
     CajaModule,
-    NegocioModule
+    NegocioModule,
+    DashboardModule
   ],
 
   // 👇 3. Activamos el Guardián Globalmente

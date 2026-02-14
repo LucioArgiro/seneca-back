@@ -9,6 +9,7 @@ import { ServiciosService } from '../servicio/servicio.service';
 import { CreateTurnoDto } from './dto/create-turno.dto';
 import { BloqueoAgenda } from '../agenda/entities/bloqueo-agenda.entity';
 import { CajaService } from 'src/caja/caja.service';
+import { UserRole } from 'src/usuario/entities/usuario.entity';
 
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
@@ -42,18 +43,12 @@ export class TurnosService {
 
   async create(createTurnoDto: CreateTurnoDto, usuarioIdCliente: string) {
     const { barberoId, servicioId, fecha } = createTurnoDto;
-
-    // 1. Validaciones de Entidades
     const cliente = await this.clienteRepository.findOne({ where: { usuario: { id: usuarioIdCliente } } });
     if (!cliente) throw new NotFoundException('Debes completar tu perfil de Cliente antes de reservar.');
-
     const barbero = await this.barberoRepository.findOne({ where: { id: barberoId } });
     if (!barbero) throw new NotFoundException(`El barbero seleccionado no existe.`);
-
     const servicio = await this.serviciosService.findOne(servicioId);
     if (!servicio) throw new NotFoundException(`El servicio no existe`);
-
-    // 2. Manejo de Fechas con DayJS
     const fechaInicio = dayjs.tz(fecha, TIMEZONE_ARG);
     const ahora = dayjs().tz(TIMEZONE_ARG);
 
@@ -61,7 +56,6 @@ export class TurnosService {
       throw new BadRequestException('No puedes agendar turnos en el pasado.');
     }
 
-    // 3. Validación de Horario (Básico)
     const hora = fechaInicio.hour();
     const esHorarioManana = hora >= 9 && hora < 14;
     const esHorarioTarde = hora >= 17 && hora < 22;
@@ -69,11 +63,7 @@ export class TurnosService {
     if (!esHorarioManana && !esHorarioTarde) {
       throw new BadRequestException('La barbería está cerrada en ese horario.');
     }
-
-    // 4. Calcular fin del turno
     const fechaFin = fechaInicio.add(servicio.duracionMinutos, 'minute');
-
-    // 5. Validar Bloqueos de Agenda
     const bloqueo = await this.bloqueoRepo.findOne({
       where: [
         { esGeneral: true, fechaInicio: LessThan(fechaFin.toDate()), fechaFin: MoreThan(fechaInicio.toDate()) },
@@ -85,26 +75,20 @@ export class TurnosService {
       throw new ConflictException(`Horario no disponible: ${bloqueo.motivo || 'Agenda cerrada'}`);
     }
 
-    // 6. 🔥 FIX: Verificar turnos existentes y limpiar "fantasmas" (Cancelados)
-    // Buscamos si hay un turno EXACTAMENTE en ese horario
+
     const turnoOcupado = await this.turnoRepository.findOne({
       where: {
         barbero: { id: barbero.id },
         fecha: fechaInicio.toDate(),
+        estado: In([EstadoTurno.PENDIENTE, EstadoTurno.CONFIRMADO])
       }
     });
 
     if (turnoOcupado) {
-      if (turnoOcupado.estado === EstadoTurno.CANCELADO) {
-        // Si está cancelado, lo eliminamos para liberar el espacio
-        await this.turnoRepository.remove(turnoOcupado);
-      } else {
-        // Si está activo, es un conflicto real
-        throw new ConflictException('El turno ya está reservado por otro cliente.');
-      }
+      throw new ConflictException('El turno ya está reservado por otro cliente.');
     }
 
-    // Verificación extra de solapamiento por rangos
+
     const solapamiento = await this.turnoRepository.findOne({
       where: {
         barbero: { id: barbero.id },
@@ -115,23 +99,16 @@ export class TurnosService {
     });
 
     if (solapamiento) throw new ConflictException('El horario se superpone con otro turno existente.');
-
-    // 7. Definir Estado Inicial (Lógica de Pago)
     const montoPagarCliente = createTurnoDto.montoPagar || 0;
     const valorSeniaConfig = Number(barbero.precioSenia);
 
     let estadoInicial = EstadoTurno.CONFIRMADO;
-
-    // Si el cliente va a pagar online (Total o Seña) -> PENDIENTE
     if (montoPagarCliente > 0) {
       estadoInicial = EstadoTurno.PENDIENTE;
     }
-    // Si el barbero obliga seña -> PENDIENTE
     else if (valorSeniaConfig > 0) {
       estadoInicial = EstadoTurno.PENDIENTE;
     }
-    // Si no paga nada ahora (Local) y no hay seña obligatoria -> CONFIRMADO
-
     const nuevoTurno = this.turnoRepository.create({
       cliente: cliente,
       barbero: barbero,
@@ -199,27 +176,37 @@ export class TurnosService {
     });
 
     if (!turno) throw new NotFoundException('Turno no encontrado');
+
     const userIdSolicitante = usuario.id || usuario.sub;
-
-    let tienePermiso = false;
-    if (usuario.role === 'ADMIN') tienePermiso = true;
-    else if (usuario.role === 'BARBER') {
-      if (turno.barbero.usuario.id === userIdSolicitante) tienePermiso = true;
-    }
-    else {
-      if (turno.cliente.usuario.id === userIdSolicitante) tienePermiso = true;
-    }
-
-    if (!tienePermiso) {
+    const userRole = usuario.role;
+    const isAdmin = userRole === UserRole.ADMIN;
+    const isBarberOwner = userRole === UserRole.BARBER && turno.barbero.usuario.id === userIdSolicitante;
+    const isClientOwner = userRole === UserRole.CLIENT && turno.cliente.usuario.id === userIdSolicitante;
+    if (!isAdmin && !isBarberOwner && !isClientOwner) {
+      this.logger.warn(`Intento de cancelación no autorizado: User ${userIdSolicitante} en Turno ${id}`);
       throw new ForbiddenException('No tienes permiso para cancelar este turno.');
     }
 
-    if (usuario.role === 'CLIENT' && turno.pago && turno.pago.estado === 'approved') {
-      throw new BadRequestException('Esta reserva ya fue abonada. No puedes cancelarla, pero puedes reprogramarla.');
+    if (isClientOwner) {
+      if (turno.pago && turno.pago.estado === 'approved') {
+        throw new BadRequestException('Esta reserva ya fue abonada. Por favor contáctanos para reprogramar.');
+      }
+      const ahora = dayjs().tz(TIMEZONE_ARG);
+      const inicioTurno = dayjs(turno.fecha).tz(TIMEZONE_ARG);
+      const horasRestantes = inicioTurno.diff(ahora, 'hour');
+      if (horasRestantes < 12) {
+        throw new BadRequestException('Solo puedes cancelar con al menos 12 horas de anticipación. Contacta al local.');
+      }
     }
 
+    // 3. Ejecutar Cancelación
     turno.estado = EstadoTurno.CANCELADO;
-    return await this.turnoRepository.save(turno);
+
+    const turnoGuardado = await this.turnoRepository.save(turno);
+
+    this.logger.log(`Turno ${id} cancelado por ${userRole} (ID: ${userIdSolicitante})`);
+
+    return turnoGuardado;
   }
 
   async findAll() {
@@ -279,26 +266,30 @@ export class TurnosService {
   async reprogramar(id: string, nuevaFechaISO: string, usuario: any) {
     const turno = await this.turnoRepository.findOne({
       where: { id },
-      relations: ['cliente', 'cliente.usuario', 'barbero', 'servicio']
+      relations: ['cliente', 'cliente.usuario', 'barbero', 'servicio'] // Necesitamos servicio para duración
     });
 
     if (!turno) throw new NotFoundException('El turno no existe.');
+    const nuevaFechaInicio = dayjs.tz(nuevaFechaISO, TIMEZONE_ARG);
+    const nuevaFechaFin = nuevaFechaInicio.add(turno.servicio.duracionMinutos, 'minute');
+    if (nuevaFechaInicio.isBefore(dayjs().tz(TIMEZONE_ARG))) {
+      throw new BadRequestException('No puedes reprogramar al pasado.');
+    }
+    const solapamiento = await this.turnoRepository.findOne({
+      where: {
+        barbero: { id: turno.barbero.id },
+        fecha: LessThan(nuevaFechaFin.toDate()),
+        fechaFin: MoreThan(nuevaFechaInicio.toDate()),
+        id: Not(id),
+        estado: In([EstadoTurno.PENDIENTE, EstadoTurno.CONFIRMADO])
+      }
+    });
 
-    // Validar permisos (simplificado)
-    const userIdSolicitante = usuario.id || usuario.sub;
-    let tienePermiso = false;
-    if (usuario.role === 'ADMIN') tienePermiso = true;
-    else if (usuario.role === 'BARBER' && turno.barbero.usuario?.id === userIdSolicitante) tienePermiso = true;
-    else if (turno.cliente.usuario.id === userIdSolicitante) tienePermiso = true;
+    if (solapamiento) throw new ConflictException('El nuevo horario no está disponible.');
 
-    if (!tienePermiso) throw new ForbiddenException('No tienes permiso para modificar este turno.');
+    turno.fecha = nuevaFechaInicio.toDate();
+    turno.fechaFin = nuevaFechaFin.toDate();
 
-    // Verificar disponibilidad en la nueva fecha (opcional pero recomendado)
-    // ...
-
-    const fechaInicio = new Date(nuevaFechaISO);
-    turno.fecha = fechaInicio;
-    turno.fechaFin = new Date(fechaInicio.getTime() + (turno.servicio.duracionMinutos * 60000));
     return await this.turnoRepository.save(turno);
   }
 
