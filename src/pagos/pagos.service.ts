@@ -60,7 +60,7 @@ export class PagosService {
                     pending: `${frontendUrl}/panel?status=pending`,
                 },
                 auto_return: 'approved',
-                notification_url: `${webhookBaseUrl}/api/v1/pagos/webhook`,
+                notification_url: webhookBaseUrl,
                 date_of_expiration: fechaExpiracion.toISOString(),
             }
         });
