@@ -2,7 +2,6 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ScheduleModule } from '@nestjs/schedule';
-// 👇 1. Importamos las herramientas de Rate Limiting
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 
@@ -24,26 +23,29 @@ import { DashboardModule } from './dashboard/dashboard.module';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+
+    // 👇 1. AJUSTE DE RATE LIMIT (10 era muy poco, lo subí a 100 para evitar errores 429)
     ThrottlerModule.forRoot([{
       ttl: 60000,
-      limit: 10,
+      limit: 100,
     }]),
 
-    // 3. Conexión a BD
+    // 2. Conexión a BD
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
         type: 'mysql',
         host: config.get<string>('DB_HOST'),
-        port: config.get<number>('DB_PORT', 3306),
-        username: config.get<string>('DB_USERNAME'),
-        password: config.get<string>('DB_PASSWORD'),
+        port: config.get<number>('DB_PORT'), // TypeORM maneja el parseo si viene como string
+        username: config.get<string>('DB_USERNAME') || config.get<string>('DB_USER'), // Soporte para ambos nombres
+        password: config.get<string>('DB_PASSWORD') || config.get<string>('DB_PASS'),
         database: config.get<string>('DB_NAME'),
         timezone: 'Z',
         autoLoadEntities: true,
-        synchronize: config.get<string>('NODE_ENV') !== 'production',
+        synchronize: config.get<string>('DB_SYNC') === 'true' || config.get<string>('NODE_ENV') !== 'production',
+
         ssl: {
-          rejectUnauthorized: false,
+          rejectUnauthorized: false, // Necesario para Railway
         },
       }),
     }),
@@ -66,7 +68,6 @@ import { DashboardModule } from './dashboard/dashboard.module';
     DashboardModule
   ],
 
-  // 👇 3. Activamos el Guardián Globalmente
   providers: [
     {
       provide: APP_GUARD,
