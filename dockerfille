@@ -1,0 +1,38 @@
+# --- ETAPA 1: BUILD ---
+# Usamos una imagen ligera de Node
+FROM node:20-alpine AS builder
+
+# Creamos el directorio de trabajo
+WORKDIR /app
+
+# Copiamos los archivos de dependencias primero (para aprovechar la caché de Docker)
+COPY package*.json ./
+
+# Instalamos TODAS las dependencias (incluyendo las de desarrollo para poder compilar)
+RUN npm ci
+
+# Copiamos el resto del código fuente
+COPY . .
+
+# Compilamos el proyecto (esto crea la carpeta /dist)
+RUN npm run build
+
+# --- ETAPA 2: PRODUCCIÓN ---
+# Iniciamos una imagen limpia y vacía para que pese poco
+FROM node:20-alpine AS production
+
+WORKDIR /app
+
+# Definimos el entorno como producción
+ENV NODE_ENV=production
+
+# Copiamos solo lo necesario desde la etapa anterior (Builder)
+COPY --from=builder /app/package*.json ./
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/node_modules ./node_modules
+
+# Exponemos el puerto (Railway inyecta la variable PORT automáticamente)
+EXPOSE 3000
+
+# Comando para arrancar la app
+CMD ["node", "dist/main.js"]
