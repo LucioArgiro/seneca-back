@@ -4,6 +4,8 @@ import { Repository, DataSource } from 'typeorm';
 import { MercadoPagoConfig, Preference, Payment } from 'mercadopago';
 import { Pago } from './entities/pago.entity';
 import { Turno, EstadoTurno } from '../turno/entities/turno.entity';
+import { Caja } from '../caja/entities/caja.entity';
+import { MovimientoCaja, TipoMovimiento, ConceptoMovimiento } from '../caja/entities/movimiento-caja.entity';
 
 @Injectable()
 export class PagosService {
@@ -13,7 +15,9 @@ export class PagosService {
     constructor(
         @InjectRepository(Pago) private readonly pagoRepo: Repository<Pago>,
         @InjectRepository(Turno) private readonly turnoRepo: Repository<Turno>,
-        private readonly dataSource: DataSource // Para transacciones seguras
+        @InjectRepository(Caja) private readonly cajaRepo: Repository<Caja>,
+        @InjectRepository(MovimientoCaja) private readonly movimientoRepo: Repository<MovimientoCaja>,
+        private readonly dataSource: DataSource
     ) {
         this.client = new MercadoPagoConfig({
             accessToken: process.env.MP_ACCESS_TOKEN ?? ''
@@ -81,7 +85,6 @@ export class PagosService {
     }
 
     async procesarPagoExitoso(paymentId: string) {
-
         const paymentClient = new Payment(this.client);
         const pagoMP = await paymentClient.get({ id: paymentId });
         if (pagoMP.status !== 'approved') {
@@ -96,13 +99,11 @@ export class PagosService {
         const queryRunner = this.dataSource.createQueryRunner();
         await queryRunner.connect();
         await queryRunner.startTransaction();
-
         try {
             const turnoId = pagoMP.external_reference;
             const turno = await queryRunner.manager.findOne(Turno, {
-                where: { id: turnoId }
+                where: { id: turnoId }, relations: ['cliente', 'cliente.usuario']
             });
-
             if (!turno) throw new NotFoundException('Turno no encontrado para este pago');
             const nuevoPago = this.pagoRepo.create({
                 paymentId: String(pagoMP.id),
@@ -115,16 +116,51 @@ export class PagosService {
             });
             await queryRunner.manager.save(nuevoPago);
             turno.estado = EstadoTurno.CONFIRMADO;
+            turno.montoAbonado = pagoMP.transaction_amount ?? 0;
             await queryRunner.manager.save(turno);
-            await queryRunner.commitTransaction();
+            const ultimaCaja = await queryRunner.manager.find(Caja, {
+                order: { creadaEn: 'DESC' },
+                take: 1
+            });
 
-            this.logger.log(`✅ Turno ${turnoId} confirmado con pago ${paymentId}`);
+            let cajaDestino = ultimaCaja[0];
+
+            // Si no hay caja, creamos una de emergencia (opcional, pero seguro)
+            if (!cajaDestino) {
+                cajaDestino = this.cajaRepo.create({
+                    nombre: `Caja Automática ${new Date().toLocaleDateString()}`,
+                    saldo: 0
+                });
+                await queryRunner.manager.save(cajaDestino);
+            }
+
+            // B. Creamos el Movimiento
+            const movimiento = this.movimientoRepo.create({
+                caja: cajaDestino,
+                tipo: TipoMovimiento.INGRESO,
+                concepto: ConceptoMovimiento.SENA_WEB, // Asegúrate de tener este enum
+                monto: pagoMP.transaction_amount ?? 0,
+                metodoPago: 'MERCADOPAGO',
+                descripcion: `Seña Web - Turno: ${turno.cliente?.usuario?.nombre || 'Cliente'}`,
+                turno: turno,
+                usuario: turno.cliente?.usuario || null,
+            });
+
+            await queryRunner.manager.save(movimiento);
+
+            // C. Actualizamos el saldo de la Caja
+            cajaDestino.saldo = Number(cajaDestino.saldo) + Number(pagoMP.transaction_amount ?? 0);
+            await queryRunner.manager.save(cajaDestino);
+
+            // -----------------------------------------------------
+
+            await queryRunner.commitTransaction();
+            this.logger.log(`✅ Turno confirmado y dinero ($${turno.montoAbonado}) ingresado a caja.`);
 
         } catch (error) {
             this.logger.error(`Error en transacción: ${error.message}`);
             await queryRunner.rollbackTransaction();
         } finally {
-
             await queryRunner.release();
         }
     }

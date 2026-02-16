@@ -1,17 +1,19 @@
-import { Controller, Get, Post, Body, UseGuards, Request, ForbiddenException, Param } from '@nestjs/common';
+// 👇 AGREGAMOS: Res, Query y Response (de express)
+import { Controller, Get, Post, Body, UseGuards, Request, ForbiddenException, Param, Res, Query } from '@nestjs/common';
+import { type Response } from 'express';
 import { CajaService } from './caja.service';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard'; // Asegúrate de tener tu Guard de Auth
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { TipoMovimiento, ConceptoMovimiento } from './entities/movimiento-caja.entity';
 
 @Controller('caja')
-@UseGuards(JwtAuthGuard) // 👈 Protegemos todo el módulo
+@UseGuards(JwtAuthGuard)
 export class CajaController {
   constructor(private readonly cajaService: CajaService) { }
 
   // A. Obtener MI Caja (Para el Barbero logueado)
   @Get('me')
   async getMiCaja(@Request() req) {
-    const userId = req.user.id; // Asumiendo que tu JWT trae el ID
+    const userId = req.user.id;
     return this.cajaService.obtenerResumenCaja(userId);
   }
 
@@ -29,10 +31,31 @@ export class CajaController {
     return this.cajaService.obtenerTodasLasCajas();
   }
 
+  @Get('exportar')
+  async exportarExcel(
+    @Query('cajaId') cajaId: string,
+    @Query('mes') mes: number,
+    @Query('anio') anio: number,
+    @Res() res: Response
+  ) {
+    // 1. Generamos el archivo usando el servicio
+    const buffer = await this.cajaService.generarExcelMensual(cajaId, Number(mes), Number(anio));
+
+    // 2. Configuramos los headers para descarga
+    res.set({
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': `attachment; filename=Reporte_Caja_${mes}_${anio}.xlsx`,
+      'Content-Length': buffer.byteLength,
+    });
+
+    // 3. Enviamos el binario
+    res.send(buffer);
+  }
+  // 👆👆 FIN NUEVO ENDPOINT 👆👆
+
   // D. Registrar un Gasto o Retiro Manual
   @Post('movimiento')
   async crearMovimiento(@Request() req, @Body() body: any) {
-    // body: { tipo: 'EGRESO', concepto: 'GASTO_FIJO', monto: 500, descripcion: 'Luz' }
     const userId = req.user.role === 'ADMIN' && body.esCentral ? null : req.user.id;
 
     return this.cajaService.registrarMovimientoManual(
@@ -43,10 +66,12 @@ export class CajaController {
       body.descripcion
     );
   }
+
+  // F. Obtener caja de un usuario específico (Admin)
   @Get('admin/:userId')
   async getCajaDeUsuario(@Request() req, @Param('userId') userId: string) {
     if (req.user.role !== 'ADMIN') throw new ForbiddenException('Acceso denegado');
     return this.cajaService.obtenerResumenCaja(userId);
   }
-  
+
 }

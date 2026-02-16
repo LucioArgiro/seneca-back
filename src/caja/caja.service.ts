@@ -1,6 +1,8 @@
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource, IsNull, Not } from 'typeorm';
+import { Repository, DataSource, IsNull, Not, Between } from 'typeorm'; // Agregamos Between
+import * as ExcelJS from 'exceljs'; // Importamos ExcelJS
+
 import { Caja } from './entities/caja.entity';
 import { Usuario, UserRole } from '../usuario/entities/usuario.entity';
 import { MovimientoCaja, TipoMovimiento, ConceptoMovimiento } from './entities/movimiento-caja.entity';
@@ -17,7 +19,11 @@ export class CajaService {
     private dataSource: DataSource,
   ) { }
 
-  // 1. Obtiene la ÚNICA caja física del sistema (Donde usuario es NULL)
+  // =================================================================
+  // 1. LÓGICA DE CAJA CENTRAL (FÍSICA)
+  // =================================================================
+
+  // Obtiene la ÚNICA caja física del sistema (Donde usuario es NULL)
   private async obtenerCajaPrincipal(): Promise<Caja> {
     let cajaCentral = await this.cajaRepo.findOne({
       where: { usuario: IsNull() },
@@ -28,7 +34,7 @@ export class CajaService {
       this.logger.log('📦 Creando Caja Central Única...');
       cajaCentral = this.cajaRepo.create({
         nombre: 'Caja Central (Negocio)',
-        // 🔴 CORRECCIÓN CLAVE: Usamos undefined, no null, para evitar error TS
+        // Usamos undefined para que TypeORM entienda que es NULL en la BD
         usuario: undefined,
         saldo: 0
       });
@@ -37,12 +43,15 @@ export class CajaService {
     return cajaCentral;
   }
 
-  // 2. Método de utilidad: SIEMPRE devuelve la central
+  // Método público para obtener la caja (siempre devuelve la central)
   async obtenerCaja(usuarioId: string | null): Promise<Caja> {
     return this.obtenerCajaPrincipal();
   }
 
-  // 3. REGISTRAR COBRO DE TURNO
+  // =================================================================
+  // 2. REGISTRO DE MOVIMIENTOS AUTOMÁTICOS (Turnos)
+  // =================================================================
+
   async registrarCobroTurno(turno: Turno, metodoPago: string) {
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
@@ -53,8 +62,9 @@ export class CajaService {
       const montoSenia = turno.pago?.estado === 'approved' ? Number(turno.pago.monto) : 0;
       const montoSaldo = precioTotal - montoSenia;
 
+      // Solo registramos si hay saldo pendiente por cobrar en el local
       if (montoSaldo > 0) {
-        // SIEMPRE a la caja central
+        // El dinero FÍSICO entra a la Caja Central
         const cajaCentral = await this.obtenerCajaPrincipal();
 
         const movimiento = this.movRepo.create({
@@ -63,14 +73,15 @@ export class CajaService {
           concepto: ConceptoMovimiento.COBRO_TURNO,
           monto: montoSaldo,
           metodoPago: metodoPago,
-          descripcion: `Corte de ${turno.barbero.usuario.nombre} - Cliente: ${turno.cliente.usuario.nombre}`,
+          // Descripción detallada
+          descripcion: `Corte de ${turno.barbero.usuario.nombre} - Cliente: ${turno.cliente.usuario?.nombre || 'Cliente'}`,
           turno: turno,
-          usuario: turno.barbero.usuario // Etiqueta al barbero
+          usuario: turno.barbero.usuario // ETIQUETAMOS al barbero para su "billetera virtual"
         });
 
         await queryRunner.manager.save(movimiento);
 
-        // Actualizamos saldo de central
+        // Actualizamos saldo real de la caja central
         cajaCentral.saldo = Number(cajaCentral.saldo) + Number(montoSaldo);
         await queryRunner.manager.save(cajaCentral);
       }
@@ -85,67 +96,10 @@ export class CajaService {
     }
   }
 
-  // 4. OBTENER RESUMEN (Dashboard)
-  async obtenerResumenCaja(usuarioId: string | null) {
-    const cajaPrincipal = await this.obtenerCajaPrincipal();
+  // =================================================================
+  // 3. REGISTRO DE MOVIMIENTOS MANUALES (Ingresos/Egresos varios)
+  // =================================================================
 
-    // A. LÓGICA DE SEGURIDAD (Admin ve Caja Central)
-    let esAdmin = false;
-
-    if (!usuarioId) {
-      esAdmin = true; // Si no hay ID, es llamada interna o admin global
-    } else {
-      const usuario = await this.usuarioRepo.findOne({ where: { id: usuarioId } });
-      // Verificamos si existe y si es ADMIN
-      if (usuario && usuario.role === UserRole.ADMIN) {
-        esAdmin = true;
-      }
-    }
-
-    // --- ESCENARIO A: ES ADMIN ---
-    if (esAdmin) {
-      const movimientos = await this.movRepo.find({
-        where: { caja: { id: cajaPrincipal.id } },
-        order: { fecha: 'DESC' },
-        take: 100,
-        relations: ['turno', 'turno.servicio', 'turno.barbero.usuario', 'usuario']
-      });
-      return { info: cajaPrincipal, movimientos };
-    }
-
-    // --- ESCENARIO B: ES BARBERO ---
-
-    // 👇 VALIDACIÓN CLAVE: Si llegamos aquí y no hay ID, lanzamos error.
-    // Esto arregla los errores rojos de abajo porque TypeScript ahora sabe que usuarioId es string.
-    if (!usuarioId) {
-      throw new BadRequestException('ID de usuario requerido para ver cuenta corriente.');
-    }
-
-    const movimientos = await this.movRepo.find({
-      where: [
-        // Ahora usuarioId ya no marca error porque TypeScript sabe que no es null
-        { concepto: ConceptoMovimiento.COBRO_TURNO, turno: { barbero: { usuario: { id: usuarioId } } } },
-        { usuario: { id: usuarioId } }
-      ],
-      order: { fecha: 'DESC' },
-      take: 50,
-      relations: ['turno', 'turno.servicio', 'usuario']
-    });
-
-    const saldoTotal = await this.calcularSaldoVirtualTotal(usuarioId);
-
-    return {
-      info: {
-        id: 'virtual-wallet',
-        nombre: 'Mi Cuenta Corriente',
-        saldo: saldoTotal,
-        usuario: { id: usuarioId }
-      },
-      movimientos
-    };
-  }
-
-  // 5. REGISTRAR MOVIMIENTO MANUAL
   async registrarMovimientoManual(
     usuarioId: string | null,
     tipo: TipoMovimiento,
@@ -153,7 +107,7 @@ export class CajaService {
     monto: number,
     descripcion: string
   ) {
-    // 🔴 SIEMPRE usamos la Caja Central
+    // SIEMPRE impactamos la Caja Central
     const cajaCentral = await this.obtenerCajaPrincipal();
 
     const queryRunner = this.dataSource.createQueryRunner();
@@ -161,22 +115,22 @@ export class CajaService {
     await queryRunner.startTransaction();
 
     try {
-      // Usamos el usuarioId SOLO para etiquetar (relación lógica)
+      // Si viene un usuarioId (ej: Barbero retirando dinero), lo etiquetamos
       const usuarioRelacionado = usuarioId ? { id: usuarioId } : undefined;
 
       const movimiento = this.movRepo.create({
-        caja: cajaCentral, // <-- Físicamente en Central
+        caja: cajaCentral, // Dinero sale/entra de la caja física
         tipo,
         concepto,
         monto,
-        metodoPago: 'EFECTIVO',
+        metodoPago: 'EFECTIVO', // Por defecto manual suele ser efectivo
         descripcion,
-        usuario: usuarioRelacionado // <-- Etiquetado al usuario
+        usuario: usuarioRelacionado // Etiqueta para filtrar luego
       });
 
       await queryRunner.manager.save(movimiento);
 
-      // Impactamos saldo físico de la central
+      // Actualizamos el saldo físico
       if (tipo === TipoMovimiento.INGRESO) {
         cajaCentral.saldo = Number(cajaCentral.saldo) + Number(monto);
       } else {
@@ -195,42 +149,176 @@ export class CajaService {
     }
   }
 
-  // --- Auxiliares ---
+  // =================================================================
+  // 4. CONSULTA DE DASHBOARD (Resumen y Movimientos Recientes)
+  // =================================================================
+
+  async obtenerResumenCaja(usuarioId: string | null) {
+    const cajaPrincipal = await this.obtenerCajaPrincipal();
+
+    // Validamos permisos y roles
+    let esAdmin = false;
+    if (!usuarioId) {
+      esAdmin = true; // Si es null, asumimos sistema/admin
+    } else {
+      const usuario = await this.usuarioRepo.findOne({ where: { id: usuarioId } });
+      if (usuario && usuario.role === UserRole.ADMIN) {
+        esAdmin = true;
+      }
+    }
+
+    // --- CASO A: ADMIN (Ve todo) ---
+    if (esAdmin) {
+      const movimientos = await this.movRepo.find({
+        where: { caja: { id: cajaPrincipal.id } },
+        order: { fecha: 'DESC' },
+        take: 100, // Límite para performance
+        relations: ['turno', 'turno.servicio', 'turno.barbero.usuario', 'usuario']
+      });
+      return { info: cajaPrincipal, movimientos };
+    }
+
+    // --- CASO B: BARBERO (Ve su "Billetera Virtual") ---
+    
+    if (!usuarioId) {
+      throw new BadRequestException('ID de usuario requerido para ver cuenta corriente.');
+    }
+
+    // Buscamos movimientos donde el barbero esté involucrado:
+    // 1. Cobros de sus turnos (Concepto COBRO_TURNO + su ID en el turno)
+    // 2. Movimientos manuales asignados a él (Retiros, Ajustes)
+    const movimientos = await this.movRepo.find({
+      where: [
+        { concepto: ConceptoMovimiento.COBRO_TURNO, turno: { barbero: { usuario: { id: usuarioId } } } },
+        { usuario: { id: usuarioId } }
+      ],
+      order: { fecha: 'DESC' },
+      take: 50, // Límite para performance
+      relations: ['turno', 'turno.servicio', 'usuario']
+    });
+
+    // Calculamos cuánto dinero "tiene" virtualmente
+    const saldoVirtual = await this.calcularSaldoVirtualTotal(usuarioId);
+
+    return {
+      info: {
+        id: 'virtual-wallet',
+        nombre: 'Mi Cuenta Corriente', // Nombre ficticio para el front
+        saldo: saldoVirtual,
+        usuario: { id: usuarioId }
+      },
+      movimientos
+    };
+  }
+
+  // =================================================================
+  // 5. EXPORTACIÓN A EXCEL (Nuevo Feature)
+  // =================================================================
+
+  async generarExcelMensual(cajaId: string, mes: number, anio: number) {
+    // 1. Definir rango de fechas
+    const fechaInicio = new Date(anio, mes - 1, 1);
+    const fechaFin = new Date(anio, mes, 0, 23, 59, 59);
+
+    // 2. Buscar TODOS los movimientos (sin límite de 'take')
+    // Nota: Aquí usamos una lógica simple: si pasas ID, filtramos por esa caja/usuario.
+    // Si es ADMIN viendo CENTRAL, trae todo.
+    
+    // Para simplificar: Traemos de la caja central y filtramos por fecha
+    const movimientos = await this.movRepo.find({
+      where: {
+        caja: { nombre: 'Caja Central (Negocio)' }, // Aseguramos buscar en la física
+        fecha: Between(fechaInicio, fechaFin)
+      },
+      order: { fecha: 'ASC' },
+      relations: ['usuario', 'turno', 'turno.barbero.usuario']
+    });
+
+    // 3. Crear Libro
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet(`Reporte ${mes}-${anio}`);
+
+    sheet.columns = [
+      { header: 'Fecha', key: 'fecha', width: 15 },
+      { header: 'Concepto', key: 'concepto', width: 25 },
+      { header: 'Tipo', key: 'tipo', width: 10 },
+      { header: 'Monto', key: 'monto', width: 15 },
+      { header: 'Responsable / Barbero', key: 'responsable', width: 25 },
+      { header: 'Descripción', key: 'desc', width: 40 },
+    ];
+
+    // Estilos Header
+    sheet.getRow(1).font = { bold: true };
+    sheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD4AF37' } };
+
+    let totalIngresos = 0;
+    let totalEgresos = 0;
+
+    movimientos.forEach(m => {
+        const esIngreso = m.tipo === TipoMovimiento.INGRESO;
+        if(esIngreso) totalIngresos += Number(m.monto);
+        else totalEgresos += Number(m.monto);
+
+        // Intentamos sacar el nombre del responsable
+        let responsable = m.usuario?.nombre || 'Admin/Sistema';
+        if (m.turno?.barbero?.usuario) {
+            responsable = m.turno.barbero.usuario.nombre;
+        }
+
+        sheet.addRow({
+            fecha: m.fecha.toISOString().split('T')[0],
+            concepto: m.concepto,
+            tipo: m.tipo,
+            monto: esIngreso ? Number(m.monto) : -Number(m.monto),
+            responsable: responsable,
+            desc: m.descripcion
+        });
+    });
+
+    sheet.addRow({});
+    const totalRow = sheet.addRow({ concepto: 'BALANCE FINAL', monto: totalIngresos - totalEgresos });
+    totalRow.font = { bold: true };
+
+    return await workbook.xlsx.writeBuffer();
+  }
+
+  // =================================================================
+  // 6. MÉTODOS AUXILIARES
+  // =================================================================
 
   async obtenerTodasLasCajas() {
-    // Simulamos cajas basadas en usuarios barberos
+    // Devuelve una lista "virtual" de cajas para el selector del Admin
     const barberos = await this.dataSource.getRepository(Usuario).find({
       where: { role: UserRole.BARBER }
     });
+    
+    // Mapeamos los barberos a una estructura que parezca una caja
     return barberos.map(user => ({
-      id: user.id,
+      id: user.id, // Usamos el ID del usuario como ID virtual de caja
       nombre: `Caja de ${user.nombre}`,
-      saldo: 0,
+      saldo: 0, // El saldo se calcula al entrar al detalle
       usuario: user
     }));
   }
-
   async getCajaByUserId(userId: string) {
     return this.obtenerResumenCaja(userId);
   }
-
   private async calcularSaldoVirtualTotal(usuarioId: string): Promise<number> {
-    const ingresos = await this.movRepo.sum('monto', {
+    // A. Ingresos por Turnos (Comisiones/Cobros)
+    const ingresosTurnos = await this.movRepo.sum('monto', {
       concepto: ConceptoMovimiento.COBRO_TURNO,
       turno: { barbero: { usuario: { id: usuarioId } } }
     });
-
     const otrosIngresos = await this.movRepo.sum('monto', {
       usuario: { id: usuarioId },
       tipo: TipoMovimiento.INGRESO,
       concepto: Not(ConceptoMovimiento.COBRO_TURNO)
     });
-
     const egresos = await this.movRepo.sum('monto', {
       usuario: { id: usuarioId },
       tipo: TipoMovimiento.EGRESO
     });
 
-    return (ingresos || 0) + (otrosIngresos || 0) - (egresos || 0);
+    return (ingresosTurnos || 0) + (otrosIngresos || 0) - (egresos || 0);
   }
 }

@@ -43,6 +43,9 @@ export class Turno {
   @Column('text', { nullable: true })
   notas: string;
 
+  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
+  montoAbonado: number;
+
   @CreateDateColumn({ name: 'creado_en' })
   creadoEn: Date;
 
