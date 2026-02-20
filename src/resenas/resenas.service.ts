@@ -21,12 +21,7 @@ export class ResenasService {
   ) { }
 
   // 1. CREAR RESEÑA (Arquitectura Nueva)
-  async create(createDto: CreateResenaDto, usuarioIdDelToken: string) {
-    // 👇 AGREGA ESTO PARA ESPIAR
-    console.log("--- DEBUG CREAR RESEÑA ---");
-    console.log("ID Barbero recibido:", createDto.barberoId); // ¿Sale undefined?
-    console.log("ID Cliente (Token):", usuarioIdDelToken);
-    
+  async create(createDto: CreateResenaDto, usuarioIdDelToken: string) {   
     const perfilBarbero = await this.barberoRepo.findOne({
         where: { usuario: { id: createDto.barberoId } }
     });

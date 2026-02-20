@@ -13,9 +13,6 @@ export class PagosController {
     const topic = type || body.type;
 
     if (topic === 'payment' && paymentId) {
-      console.log(`🔔 Webhook recibido: Pago ${paymentId}`);
-      // No usamos await para responder rápido 200 OK a Mercado Pago
-      // La lógica corre en segundo plano
       this.pagosService.procesarPagoExitoso(paymentId);
     }
 
