@@ -143,7 +143,7 @@ export class TurnosService {
         estado: EstadoTurno.PENDIENTE
       },
       order: { fecha: 'ASC' },
-      relations: ['cliente', 'cliente.usuario', 'servicio']
+      relations: ['cliente', 'cliente.usuario', 'servicio', 'pago']
     });
   }
 
@@ -158,7 +158,7 @@ export class TurnosService {
         { barbero: { id: barbero.id }, estado: EstadoTurno.CONFIRMADO }
       ],
       order: { fecha: 'DESC' },
-      relations: ['cliente', 'cliente.usuario', 'servicio']
+      relations: ['cliente', 'cliente.usuario', 'servicio', 'pago']
     });
   }
 
@@ -302,7 +302,7 @@ export class TurnosService {
         fecha: Between(inicioDia, finDia),
         estado: Not(EstadoTurno.CANCELADO)
       },
-      relations: ['cliente', 'cliente.usuario', 'barbero', 'barbero.usuario', 'servicio'],
+      relations: ['cliente', 'cliente.usuario', 'barbero', 'barbero.usuario', 'servicio', 'pago'],
       order: { fecha: 'ASC' }
     });
   }
