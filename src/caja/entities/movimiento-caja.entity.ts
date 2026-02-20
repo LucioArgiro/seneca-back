@@ -10,10 +10,11 @@ export enum TipoMovimiento {
 }
 
 export enum ConceptoMovimiento {
-  COBRO_TURNO = 'COBRO_TURNO', // Cobro del saldo en local
-  SENA_WEB = 'SENA_WEB',       // Ingreso por seña (Va a caja central)
-  GASTO_FIJO = 'GASTO_FIJO',   // Luz, Internet, etc.
-  RETIRO = 'RETIRO',           // El barbero se lleva su plata
+  COBRO_TURNO = 'COBRO_TURNO',
+  PAGO_TOTAL_WEB = 'PAGO_TOTAL_WEB', 
+  SENA_WEB = 'SENA_WEB',      
+  GASTO_FIJO = 'GASTO_FIJO',   
+  RETIRO = 'RETIRO',         
   AJUSTE = 'AJUSTE',
   INSUMOS = 'INSUMOS',
   OTRO = 'OTRO'

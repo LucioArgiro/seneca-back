@@ -27,9 +27,11 @@ export class PagosService {
     async crearPreferencia(turno: any, tipoPago: 'SENIA' | 'TOTAL') {
         const webhookBaseUrl = process.env.WEBHOOK_URL;
         const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+        
         if (!webhookBaseUrl) {
             console.warn('⚠️ OJO: No configuraste WEBHOOK_URL en el .env');
         }
+        
         const precioTotal = Number(turno.servicio.precio);
         const precioSenia = turno.barbero.precioSenia || 2000;
         let montoACobrar = 0;
@@ -43,37 +45,40 @@ export class PagosService {
             montoACobrar = precioTotal;
             tituloItem = `Servicio Completo: ${turno.servicio.nombre}`;
         }
-        const preference = new Preference(this.client);
-        const fechaExpiracion = new Date();
-        fechaExpiracion.setMinutes(fechaExpiracion.getMinutes() + 15); // Expira en 15 minutos
-        const resultado = await preference.create({
-            body: {
-                items: [
-                    {
-                        id: turno.servicio.id,
-                        title: tituloItem,
-                        quantity: 1,
-                        unit_price: montoACobrar,
-                        currency_id: 'ARS',
+        
+        try {
+            const preference = new Preference(this.client);
+            const fechaExpiracion = new Date();
+            fechaExpiracion.setMinutes(fechaExpiracion.getMinutes() + 15); // Expira en 15 minutos
+            
+            const resultado = await preference.create({
+                body: {
+                    items: [
+                        {
+                            id: turno.servicio.id,
+                            title: tituloItem,
+                            quantity: 1,
+                            unit_price: montoACobrar,
+                            currency_id: 'ARS',
+                        },
+                    ],
+                    external_reference: turno.id,
+                    back_urls: {
+                        success: `${frontendUrl}/panel?status=success`,
+                        failure: `${frontendUrl}/reservar?status=failure`,
+                        pending: `${frontendUrl}/panel?status=pending`,
                     },
-                ],
-                external_reference: turno.id,
-                back_urls: {
-                    success: `${frontendUrl}/panel?status=success`,
-                    failure: `${frontendUrl}/reservar?status=failure`,
-                    pending: `${frontendUrl}/panel?status=pending`,
-                },
-                auto_return: 'approved',
-                notification_url: webhookBaseUrl,
-                date_of_expiration: fechaExpiracion.toISOString(),
-            }
-        });
-        return { url: resultado.init_point };
-    } catch(error) {
-        this.logger.error(`❌ Error al crear preferencia en Mercado Pago: ${error.message}`);
-        throw new ConflictException('Hubo un error al generar el link de pago. Intenta nuevamente.');
+                    auto_return: 'approved',
+                    notification_url: webhookBaseUrl,
+                    date_of_expiration: fechaExpiracion.toISOString(),
+                }
+            });
+            return { url: resultado.init_point };
+        } catch(error) {
+            this.logger.error(`❌ Error al crear preferencia en Mercado Pago: ${error.message}`);
+            throw new ConflictException('Hubo un error al generar el link de pago. Intenta nuevamente.');
+        }
     }
-
 
     async checkPayment(paymentId: string) {
         const payment = new Payment(this.client);
@@ -87,10 +92,12 @@ export class PagosService {
     async procesarPagoExitoso(paymentId: string) {
         const paymentClient = new Payment(this.client);
         const pagoMP = await paymentClient.get({ id: paymentId });
+        
         if (pagoMP.status !== 'approved') {
             this.logger.warn(`Pago ${paymentId} no aprobado. Status: ${pagoMP.status}`);
             return;
         }
+        
         const pagoExistente = await this.pagoRepo.findOne({ where: { paymentId: String(pagoMP.id) } });
         if (pagoExistente) {
             this.logger.log(`El pago ${paymentId} ya fue procesado.`);
@@ -99,12 +106,16 @@ export class PagosService {
         const queryRunner = this.dataSource.createQueryRunner();
         await queryRunner.connect();
         await queryRunner.startTransaction();
+        
         try {
             const turnoId = pagoMP.external_reference;
             const turno = await queryRunner.manager.findOne(Turno, {
-                where: { id: turnoId }, relations: ['cliente', 'cliente.usuario']
+                where: { id: turnoId }, 
+                relations: ['cliente', 'cliente.usuario', 'servicio']
             });
+            
             if (!turno) throw new NotFoundException('Turno no encontrado para este pago');
+            
             const nuevoPago = this.pagoRepo.create({
                 paymentId: String(pagoMP.id),
                 monto: pagoMP.transaction_amount,
@@ -118,14 +129,13 @@ export class PagosService {
             turno.estado = EstadoTurno.CONFIRMADO;
             turno.montoAbonado = pagoMP.transaction_amount ?? 0;
             await queryRunner.manager.save(turno);
+            
             const ultimaCaja = await queryRunner.manager.find(Caja, {
                 order: { creadaEn: 'DESC' },
                 take: 1
             });
-
             let cajaDestino = ultimaCaja[0];
 
-            // Si no hay caja, creamos una de emergencia (opcional, pero seguro)
             if (!cajaDestino) {
                 cajaDestino = this.cajaRepo.create({
                     nombre: `Caja Automática ${new Date().toLocaleDateString()}`,
@@ -133,30 +143,30 @@ export class PagosService {
                 });
                 await queryRunner.manager.save(cajaDestino);
             }
-
-            // B. Creamos el Movimiento
+            const montoPagado = Number(pagoMP.transaction_amount) || 0;
+            const precioServicio = Number(turno.servicio?.precio) || 0;
+            let conceptoAsignado = ConceptoMovimiento.SENA_WEB;
+            let descripcionAsignada = `Seña Web - Turno: ${turno.cliente?.usuario?.nombre || 'Cliente'}`;
+            if (montoPagado >= precioServicio) {
+                conceptoAsignado = ConceptoMovimiento.PAGO_TOTAL_WEB;
+                descripcionAsignada = `Pago Total Web - Turno: ${turno.cliente?.usuario?.nombre || 'Cliente'}`;
+            }
             const movimiento = this.movimientoRepo.create({
                 caja: cajaDestino,
                 tipo: TipoMovimiento.INGRESO,
-                concepto: ConceptoMovimiento.SENA_WEB, // Asegúrate de tener este enum
-                monto: pagoMP.transaction_amount ?? 0,
+                concepto: conceptoAsignado, 
+                monto: montoPagado,
                 metodoPago: 'MERCADOPAGO',
-                descripcion: `Seña Web - Turno: ${turno.cliente?.usuario?.nombre || 'Cliente'}`,
+                descripcion: descripcionAsignada,
                 turno: turno,
                 usuario: turno.cliente?.usuario || null,
             });
 
             await queryRunner.manager.save(movimiento);
-
-            // C. Actualizamos el saldo de la Caja
-            cajaDestino.saldo = Number(cajaDestino.saldo) + Number(pagoMP.transaction_amount ?? 0);
+            cajaDestino.saldo = Number(cajaDestino.saldo) + montoPagado;
             await queryRunner.manager.save(cajaDestino);
-
-            // -----------------------------------------------------
-
             await queryRunner.commitTransaction();
-            this.logger.log(`✅ Turno confirmado y dinero ($${turno.montoAbonado}) ingresado a caja.`);
-
+            this.logger.log(`✅ Turno confirmado y dinero ($${turno.montoAbonado}) ingresado a caja como ${conceptoAsignado}.`);
         } catch (error) {
             this.logger.error(`Error en transacción: ${error.message}`);
             await queryRunner.rollbackTransaction();
