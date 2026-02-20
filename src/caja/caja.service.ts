@@ -176,40 +176,40 @@ export class CajaService {
         relations: ['turno', 'turno.servicio', 'turno.barbero.usuario', 'usuario']
       });
       return { info: cajaPrincipal, movimientos };
-    }
-
-    // --- CASO B: BARBERO (Ve su "Billetera Virtual") ---
-    
+    }    
     if (!usuarioId) {
-      throw new BadRequestException('ID de usuario requerido para ver cuenta corriente.');
-    }
-
-    // Buscamos movimientos donde el barbero esté involucrado:
-    // 1. Cobros de sus turnos (Concepto COBRO_TURNO + su ID en el turno)
-    // 2. Movimientos manuales asignados a él (Retiros, Ajustes)
-    const movimientos = await this.movRepo.find({
-      where: [
-        { concepto: ConceptoMovimiento.COBRO_TURNO, turno: { barbero: { usuario: { id: usuarioId } } } },
-        { usuario: { id: usuarioId } }
-      ],
-      order: { fecha: 'DESC' },
-      take: 50, // Límite para performance
-      relations: ['turno', 'turno.servicio', 'usuario']
-    });
-
-    // Calculamos cuánto dinero "tiene" virtualmente
-    const saldoVirtual = await this.calcularSaldoVirtualTotal(usuarioId);
-
-    return {
-      info: {
-        id: 'virtual-wallet',
-        nombre: 'Mi Cuenta Corriente', // Nombre ficticio para el front
-        saldo: saldoVirtual,
-        usuario: { id: usuarioId }
-      },
-      movimientos
-    };
+    throw new BadRequestException('ID de usuario requerido para ver cuenta corriente.');
   }
+  const movimientos = await this.movRepo.find({
+    where: [{ concepto: ConceptoMovimiento.COBRO_TURNO, turno: { barbero: { usuario: { id: usuarioId } } } },{ usuario: { id: usuarioId } }], order: { fecha: 'DESC' },take: 50, relations: ['turno', 'turno.servicio', 'usuario']
+  });
+
+  const saldoVirtual = await this.calcularSaldoVirtualTotal(usuarioId);
+  const date = new Date();
+  const primerDia = new Date(date.getFullYear(), date.getMonth(), 1);
+  const ultimoDia = new Date(date.getFullYear(), date.getMonth() + 1, 0, 23, 59, 59);
+  const turnosDelMes = await this.dataSource.getRepository(Turno).find({
+    where: {barbero: { usuario: { id: usuarioId } }, fecha: Between(primerDia, ultimoDia)},relations: ['pago']
+  });
+
+  let seniasAdminMes = 0;
+  
+  turnosDelMes.forEach(turno => {
+    if (turno.pago && turno.pago.estado === 'approved') {
+      seniasAdminMes += Number(turno.pago.monto);
+    }
+  });
+  return {
+    info: {
+      id: 'virtual-wallet',
+      nombre: 'Mi Cuenta Corriente',
+      saldo: saldoVirtual,
+      usuario: { id: usuarioId },
+      seniasMes: seniasAdminMes
+    },
+    movimientos
+  };
+}
 
   // =================================================================
   // 5. EXPORTACIÓN A EXCEL (Nuevo Feature)
@@ -292,11 +292,10 @@ export class CajaService {
       where: { role: UserRole.BARBER }
     });
     
-    // Mapeamos los barberos a una estructura que parezca una caja
     return barberos.map(user => ({
-      id: user.id, // Usamos el ID del usuario como ID virtual de caja
+      id: user.id,
       nombre: `Caja de ${user.nombre}`,
-      saldo: 0, // El saldo se calcula al entrar al detalle
+      saldo: 0,
       usuario: user
     }));
   }
