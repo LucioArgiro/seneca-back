@@ -22,8 +22,7 @@ async function bootstrap() {
     'http://localhost:3000',               
     process.env.FRONTEND_URL,               
     'https://barberiaseneca.com.ar',          
-    'https://www.barberiaseneca.com.ar',
-    'https://n72j4rmn-5173.brs.devtunnels.ms/'
+    'https://www.barberiaseneca.com.ar'
   ].filter(Boolean);
 
   app.enableCors({
