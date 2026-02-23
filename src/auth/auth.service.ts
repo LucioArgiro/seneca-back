@@ -47,6 +47,22 @@ export class AuthService {
      return usuario;
   }
 
+  async verificarCodigo(email: string, codigo: string) {
+    const user = await this.usuarioRepo.findOne({ where: { email } });
+
+    if (!user) throw new NotFoundException('Usuario no encontrado');
+    if (user.recoveryCode !== codigo) {
+      throw new BadRequestException('El código es incorrecto');
+    }
+
+    const ahora = new Date();
+    if (!user.recoveryExpires || ahora > user.recoveryExpires) {
+      throw new BadRequestException('El código ha expirado');
+    }
+
+    // Si pasa todas las validaciones, le damos luz verde al frontend
+    return { message: 'Código verificado correctamente', status: 'OK' };
+  }
 
   // 👇 NUEVO: Generar código de recuperación 👇
   async solicitarRecuperacion(email: string) {
@@ -70,17 +86,14 @@ export class AuthService {
 
   async restablecerPassword(email: string, codigo: string, newPass: string) {
     const user = await this.usuarioRepo.findOne({ where: { email } });
-
     if (!user) throw new NotFoundException('Usuario no encontrado');
     if (user.recoveryCode !== codigo) {
       throw new BadRequestException('El código es incorrecto');
     }
-
     const ahora = new Date();
     if (!user.recoveryExpires || ahora > user.recoveryExpires) {
       throw new BadRequestException('El código ha expirado');
     }
-
     const salt = await bcrypt.genSalt();
     user.password = await bcrypt.hash(newPass, salt);
     user.recoveryCode = null;
@@ -88,4 +101,5 @@ export class AuthService {
     await this.usuarioRepo.save(user);
     return { message: 'Contraseña actualizada correctamente' };
   }
+
 }

@@ -5,6 +5,7 @@ import { CreateUsuarioDto } from '../usuario/dto/create-usuario.dto';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { Throttle } from '@nestjs/throttler';
 import { ThrottlerExceptionFilter } from '../common/filters/throttler-exception.filter'; // Ajusta la ruta
+import { ResetPasswordDto, VerifyCodeDto } from './dto/reset-password.dto';
 
 @Controller('auth')
 @UseFilters(ThrottlerExceptionFilter)
@@ -53,15 +54,23 @@ export class AuthController {
     return this.authService.register(body);
   }
 
-  @Throttle({ default: { limit: 3, ttl: 60000 } })
+ @Throttle({ default: { limit: 3, ttl: 60000 } })
   @Post('solicitar-recuperacion')
   solicitarRecuperacion(@Body() body: { email: string }) {
     return this.authService.solicitarRecuperacion(body.email);
   }
 
+  // 👇 NUEVO ENDPOINT: Solo verifica si el código es válido
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @Post('verificar-codigo')
+  verificarCodigo(@Body() body: VerifyCodeDto) {
+    return this.authService.verificarCodigo(body.email, body.codigo);
+  }
+
+  // 👇 ACTUALIZADO: Usa el DTO con el Regex
   @Throttle({ default: { limit: 3, ttl: 60000 } })
   @Post('restablecer-password')
-  restablecerPassword(@Body() body: { email: string, codigo: string, newPassword: string }) {
+  restablecerPassword(@Body() body: ResetPasswordDto) {
     return this.authService.restablecerPassword(body.email, body.codigo, body.newPassword);
   }
 }
